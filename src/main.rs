@@ -1,9 +1,11 @@
+use combine::error::StreamError;
 use combine::parser::{
     char::digit, char::string, combinator::recognize, repeat::many1, repeat::sep_by1,
     repeat::skip_many, repeat::skip_many1, token::token,
 };
+use combine::stream::StreamErrorFor;
 use combine::{
-    attempt, choice, one_of, optional, parser, satisfy, value, ParseError, Parser, Stream,
+    attempt, choice, one_of, optional, parser, satisfy, value, ParseError, Parser, Stream, unexpected,
 };
 use std::collections::BTreeSet;
 use std::option;
@@ -34,17 +36,25 @@ where
             digits_vec
                 .iter()
                 .flat_map(|digtis| digtis.chars())
-                .fold(0i64, move |mut value, c| {
-                    value *= base as i64;
-                    value += c.to_digit(base).unwrap() as i64;
-                    value
+                .try_fold(0i64, move |mut value, c| {
+                    if let Some(x)=value.checked_mul(base as i64){
+                        x.checked_add(c.to_digit(base).unwrap() as i64)
+                    }else{
+                        None
+                    }
                 })
+        }).and_then(|x |{
+            if let Some(x)=x{
+                Ok(x)
+            }else{
+                Err(StreamErrorFor::<Input>::unexpected_static_message("overflow"))
+            }
         })
     })
 }
 
 fn main() {
-    println!("{:?}", integer().parse("+0x11111111_11111111"));
+    println!("{:?}", integer().parse("+0x1_11111111_11111111"));
 
     //assert!(integer().parse("+0d1__9__1").is_ok());
     //assert!(integer().parse("+0b1__0__1").is_ok());
