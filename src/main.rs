@@ -1,11 +1,13 @@
 use combine::error::StreamError;
+use combine::parser::range::recognize_with_value;
 use combine::parser::{
     char::digit, char::string, combinator::recognize, repeat::many1, repeat::sep_by1,
     repeat::skip_many, repeat::skip_many1, token::token,
 };
 use combine::stream::StreamErrorFor;
 use combine::{
-    attempt, choice, one_of, optional, parser, satisfy, value, ParseError, Parser, Stream, unexpected,
+    attempt, choice, one_of, optional, parser, satisfy, unexpected, value, ParseError, Parser,
+    Stream,
 };
 use std::collections::BTreeSet;
 use std::option;
@@ -32,30 +34,41 @@ where
     (sign(), base()).then(|(sign, base)| {
         let digit_n = |n: u32| satisfy(move |c: char| c.is_digit(n));
 
-        sep_by1(many1(digit_n(base)), skip_many1(token('_'))).map(move |digits_vec: Vec<String>| {
-            digits_vec
-                .iter()
-                .flat_map(|digtis| digtis.chars())
-                .try_fold(0i64, move |mut value, c| {
-                    if let Some(x)=value.checked_mul(base as i64){
-                        x.checked_add(c.to_digit(base).unwrap() as i64)
-                    }else{
-                        None
-                    }
-                })
-        }).and_then(|x |{
-            if let Some(x)=x{
-                Ok(x)
-            }else{
-                Err(StreamErrorFor::<Input>::unexpected_static_message("overflow"))
+        recognize((
+            skip_many1(digit_n(base)),
+            skip_many((skip_many1(token('_')), skip_many1(digit_n(base)))),
+        ))
+        .and_then(move |digits: String| {
+            
+            let number = digits
+                .chars()
+                .into_iter()
+                .try_fold(0i64, |value, digit: char| {
+                    if digit == '_' {
+                        return Some(value);
+                    };
+
+                    value
+                        .checked_mul(base as i64)
+                        .map(move |x| match sign {
+                            false => x.checked_add(digit.to_digit(base).unwrap() as i64),
+                            true => x.checked_sub(digit.to_digit(base).unwrap() as i64),
+                        })
+                        .flatten()
+                });
+            match number {
+                Some(x) => Ok(x),
+                None => Err(StreamErrorFor::<Input>::unexpected_static_message(
+                    "overflow",
+                )),
             }
         })
     })
 }
 
 fn main() {
-    println!("{:?}", integer().parse("+0x1_11111111_11111111"));
+    println!("{:?}", integer().parse("-0x11111111_1A111111"));
 
-    //assert!(integer().parse("+0d1__9__1").is_ok());
-    //assert!(integer().parse("+0b1__0__1").is_ok());
+    assert!(integer().parse("+0d1__9__1").is_ok());
+    assert!(integer().parse("+0b1__0__1").is_ok());
 }
